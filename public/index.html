@@ -7,112 +7,401 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; display: flex; height: 100vh; }
-  #side { width: 340px; padding: 14px; overflow: auto; border-right: 1px solid #ddd; background: #fafafa; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; display: flex; height: 100vh; color: #1d1d1f; }
+  #side { width: 360px; display: flex; flex-direction: column; border-right: 1px solid #ddd; background: #fafafa; }
   #map { flex: 1; }
-  h1 { font-size: 17px; margin: 0 0 10px; }
-  textarea { width: 100%; height: 190px; font: inherit; padding: 6px; }
-  button { margin-top: 8px; width: 100%; padding: 9px; font: inherit; font-weight: 600; background: #1b5fbf; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
-  button:disabled { background: #888; cursor: wait; }
-  #status { margin: 10px 0; color: #555; min-height: 1.4em; }
-  #status.err { color: #b00020; }
-  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-  td { padding: 4px 2px; border-bottom: 1px solid #e5e5e5; vertical-align: top; }
-  td.km { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  tr.bad td { color: #b00020; }
-  tfoot td { font-weight: 700; border: 0; }
-  .warn { font-size: 12px; color: #8a5a00; background: #fff6dd; padding: 6px; margin-top: 8px; border-radius: 4px; }
+  header { padding: 14px 14px 8px; }
+  h1 { font-size: 17px; margin: 0; }
   .muted { font-size: 12px; color: #777; }
+
+  #add { display: flex; gap: 6px; padding: 0 14px 10px; }
+  #add input { flex: 1; min-width: 0; }
+  input[type=text] { font: inherit; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+  input[type=text]:focus { outline: 2px solid #1b5fbf33; border-color: #1b5fbf; }
+  button { font: inherit; cursor: pointer; border: 1px solid #ccc; background: #fff; border-radius: 4px; padding: 6px 10px; }
+  button:hover { background: #f0f0f0; }
+  button.primary { background: #1b5fbf; border-color: #1b5fbf; color: #fff; font-weight: 600; }
+  button.primary:hover { background: #164f9f; }
+
+  #list { list-style: none; margin: 0; padding: 0 14px; overflow: auto; flex: 1; }
+  .st { display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 4px 6px; }
+  .st.dragging { opacity: .4; }
+  .st.drop-before { box-shadow: 0 -3px 0 #1b5fbf; }
+  .st.drop-after { box-shadow: 0 3px 0 #1b5fbf; }
+  .st.bad { border-color: #b00020; background: #fff0f2; }
+  .handle { cursor: grab; color: #aaa; padding: 0 2px; user-select: none; font-size: 16px; line-height: 1; }
+  .num { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #111; font-size: 11px; font-weight: 700; display: grid; place-items: center; flex: none; }
+  .st input { flex: 1; min-width: 0; border-color: transparent; padding: 4px 6px; }
+  .st input:hover { border-color: #ddd; }
+  .st .ctl { display: flex; gap: 2px; }
+  .st .ctl button { padding: 2px 6px; border-color: transparent; color: #555; background: none; }
+  .st .ctl button:hover { background: #eee; }
+  .st .ctl button.del:hover { color: #b00020; }
+  .st .ctl button:disabled { visibility: hidden; }
+  .seg { font-size: 12px; color: #666; padding: 3px 0 3px 40px; font-variant-numeric: tabular-nums; }
+  .seg.bad { color: #b00020; }
+  .found { font-size: 11px; color: #777; padding: 0 0 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
+
+  footer { padding: 10px 14px 14px; border-top: 1px solid #e5e5e5; }
+  #total { font-weight: 700; font-size: 15px; }
+  #status { min-height: 1.4em; color: #555; }
+  #status.err { color: #b00020; }
+  .warn { font-size: 12px; color: #8a5a00; background: #fff6dd; padding: 6px; margin-top: 8px; border-radius: 4px; }
+  .hint { cursor: pointer; text-decoration: underline; }
+  .tools { display: flex; gap: 6px; margin-top: 8px; }
+  .tools button { flex: 1; font-size: 12px; }
+  .seg { border-left: 4px solid transparent; margin-left: 24px; padding-left: 12px; }
+
+  .rev-icon { background: #ffb300; color: #111; border: 2px solid #111; border-radius: 50%; font-weight: 700; font-size: 13px; line-height: 18px; text-align: center; }
+  details#look { margin-top: 10px; border: 1px solid #e0e0e0; border-radius: 6px; background: #fff; }
+  details#look summary { cursor: pointer; padding: 6px 10px; font-weight: 600; font-size: 13px; }
+  #look .body { padding: 4px 10px 10px; display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; font-size: 13px; }
+  #look select, #look input[type=range] { width: 100%; font: inherit; }
+  #look input[type=color] { width: 44px; height: 26px; padding: 0 2px; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+  #look .colors { display: flex; gap: 6px; align-items: center; }
+  #look .presets { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; }
+  #look .presets button { font-size: 12px; padding: 3px 8px; display: flex; align-items: center; gap: 5px; }
+  #look .sw { width: 22px; height: 8px; border-radius: 4px; display: inline-block; }
+  #look .hidden { display: none; }
 </style>
 </head>
 <body>
 <div id="side">
-  <h1>Маршрут поїзда по коліях</h1>
-  <div class="muted">Одна станція на рядок, у порядку руху</div>
-  <textarea id="list"></textarea>
-  <button id="go">Побудувати маршрут</button>
-  <div id="status"></div>
-  <div id="result"></div>
-  <p class="muted">Перший запуск може тривати 1–3 хв: дані тягнуться з Overpass API і кешуються в <code>cache/</code>.</p>
+  <header>
+    <h1>Маршрут поїзда по коліях</h1>
+    <div class="muted">Перетягуйте станції за ⋮⋮, щоб змінити порядок. Маршрут перебудовується автоматично.</div>
+  </header>
+  <form id="add">
+    <input type="text" id="newName" list="names" placeholder="Додати станцію…" autocomplete="off">
+    <button class="primary" type="submit">Додати</button>
+  </form>
+  <ul id="list"></ul>
+  <footer>
+    <div id="total"></div>
+    <div id="status"></div>
+    <div id="warnings"></div>
+    <details id="look">
+      <summary>🎨 Вигляд маршруту</summary>
+      <div class="body">
+        <label for="lkMode">Колір</label>
+        <select id="lkMode">
+          <option value="single">Один колір</option>
+          <option value="alternate">Чергування двох кольорів</option>
+          <option value="palette">Кожна ділянка своїм кольором</option>
+        </select>
+        <span id="lkColorsLabel">Кольори</span>
+        <span class="colors">
+          <input type="color" id="lkColor1" title="Основний колір">
+          <input type="color" id="lkColor2" title="Другий колір (для чергування)">
+        </span>
+        <label for="lkWeight">Товщина</label>
+        <input type="range" id="lkWeight" min="2" max="14" step="1">
+        <label for="lkOutline">Обводка</label>
+        <span><input type="checkbox" id="lkOutline"> біла обводка під лінією</span>
+        <label for="lkOrm">Шар ORM</label>
+        <input type="range" id="lkOrm" min="0" max="100" step="5" title="Прозорість шару OpenRailwayMap">
+        <div class="presets" id="lkPresets"></div>
+      </div>
+    </details>
+    <div class="tools">
+      <button id="reverse" type="button">⇅ Зворотний напрямок</button>
+      <button id="reset" type="button">Скинути до stations.json</button>
+      <button id="clear" type="button">Очистити</button>
+    </div>
+  </footer>
 </div>
 <div id="map"></div>
+<datalist id="names"></datalist>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const map = L.map('map').setView([48.5, 28], 7);
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const STORAGE_KEY = 'railway-map-test:stations';
 
+// ---------- Карта ----------
+const map = L.map('map').setView([48.5, 31], 6);
 const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
 }).addTo(map);
 const ormAttr = 'Style: <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a> (CC-BY-SA)';
+const ormLayer = name => L.tileLayer(`https://{s}.tiles.openrailwaymap.org/${name}/{z}/{x}/{y}.png`, { subdomains: 'abc', maxZoom: 19, attribution: ormAttr });
 const orm = {
-  'ORM: інфраструктура': L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', { subdomains: 'abc', maxZoom: 19, attribution: ormAttr }),
-  'ORM: макс. швидкість': L.tileLayer('https://{s}.tiles.openrailwaymap.org/maxspeed/{z}/{x}/{y}.png', { subdomains: 'abc', maxZoom: 19, attribution: ormAttr }),
-  'ORM: електрифікація': L.tileLayer('https://{s}.tiles.openrailwaymap.org/electrification/{z}/{x}/{y}.png', { subdomains: 'abc', maxZoom: 19, attribution: ormAttr }),
+  'ORM: інфраструктура': ormLayer('standard'),
+  'ORM: макс. швидкість': ormLayer('maxspeed'),
+  'ORM: електрифікація': ormLayer('electrification'),
 };
 orm['ORM: інфраструктура'].addTo(map);
 L.control.layers({ 'OpenStreetMap': osm }, orm).addTo(map);
-
 const routeLayer = L.layerGroup().addTo(map);
-const $ = id => document.getElementById(id);
 
-fetch('/stations.json').then(r => r.json()).then(j => {
-  const list = Array.isArray(j) ? j : j.stations;
-  $('list').value = list.map(s => typeof s === 'string' ? s : s.name).join('\n');
-});
+// ---------- Стан ----------
+let stations = [];       // назви в порядку руху
+let route = null;        // остання відповідь сервера
+let badStation = null;   // назва, яку не знайдено
+let defaults = [];
+let fitOnNextDraw = true;
 
-$('go').onclick = async () => {
-  const stations = $('list').value.split('\n').map(s => s.trim()).filter(Boolean);
-  $('go').disabled = true;
-  $('status').className = '';
-  $('status').textContent = 'Будую маршрут…';
-  $('result').innerHTML = '';
+function setStations(next, { fit = false } = {}) {
+  stations = next.map(s => s.trim()).filter(Boolean);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(stations));
+  if (fit) fitOnNextDraw = true;
+  renderList();
+  scheduleBuild();
+}
+
+// ---------- Список станцій ----------
+function renderList() {
+  const ul = $('list');
+  ul.innerHTML = '';
+  const segs = route && sameList(route.request, stations) ? route.segments : null;
+
+  stations.forEach((name, i) => {
+    const li = document.createElement('li');
+    const resolved = segs && route.stations[i];
+    const shownAs = resolved && resolved.name !== name ? resolved.name : '';
+    li.innerHTML = `
+      <div class="st ${name === badStation ? 'bad' : ''}" data-i="${i}">
+        <span class="handle" title="Перетягніть">⋮⋮</span>
+        <span class="num">${i + 1}</span>
+        <input type="text" list="names" value="${esc(name)}" title="Змініть назву і натисніть Enter">
+        ${shownAs ? `<span class="found" title="Знайдено в OSM як «${esc(shownAs)}»">${esc(shownAs)}</span>` : ''}
+        <span class="ctl">
+          <button type="button" class="up" title="Вище" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button type="button" class="down" title="Нижче" ${i === stations.length - 1 ? 'disabled' : ''}>↓</button>
+          <button type="button" class="del" title="Видалити">✕</button>
+        </span>
+      </div>
+      ${i < stations.length - 1 ? `<div class="seg ${segs && !segs[i].ok ? 'bad' : ''}" style="${segs ? `border-left-color:${segColor(i, segs[i].ok)}` : ''}">${segs ? `↓ ${segs[i].distanceKm.toFixed(1)} км${segs[i].ok ? '' : ' (не знайдено по коліях)'}${segs[i].reversals?.length ? ` · <span title="Поїзд змінює напрямок руху">⇄ ${segs[i].reversals.map(r => esc(r.station)).join(', ')}</span>` : ''}` : '↓'}</div>` : ''}`;
+    ul.appendChild(li);
+
+    const row = li.querySelector('.st');
+    const input = row.querySelector('input');
+    const commit = () => {
+      if (input.value.trim() === name) return;
+      const next = [...stations];
+      if (input.value.trim()) next[i] = input.value; else next.splice(i, 1);
+      setStations(next);
+    };
+    input.addEventListener('change', commit);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });
+    row.querySelector('.up').onclick = () => move(i, i - 1);
+    row.querySelector('.down').onclick = () => move(i, i + 1);
+    row.querySelector('.del').onclick = () => setStations(stations.filter((_, j) => j !== i));
+
+    // Перетягування
+    const handle = row.querySelector('.handle');
+    handle.addEventListener('mousedown', () => { row.draggable = true; });
+    handle.addEventListener('mouseup', () => { row.draggable = false; });
+    row.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', String(i));
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', () => { row.classList.remove('dragging'); row.draggable = false; });
+    row.addEventListener('dragover', e => {
+      e.preventDefault();
+      const after = e.offsetY > row.offsetHeight / 2;
+      row.classList.toggle('drop-after', after);
+      row.classList.toggle('drop-before', !after);
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drop-before', 'drop-after'));
+    row.addEventListener('drop', e => {
+      e.preventDefault();
+      const after = row.classList.contains('drop-after');
+      row.classList.remove('drop-before', 'drop-after');
+      const from = +e.dataTransfer.getData('text/plain');
+      let to = i + (after ? 1 : 0);
+      if (from < to) to--;
+      move(from, to);
+    });
+  });
+}
+
+function move(from, to) {
+  if (from === to || to < 0 || to >= stations.length) return;
+  const next = [...stations];
+  const [x] = next.splice(from, 1);
+  next.splice(to, 0, x);
+  setStations(next);
+}
+
+const sameList = (a, b) => a && a.length === b.length && a.every((x, i) => x === b[i]);
+
+$('add').onsubmit = e => {
+  e.preventDefault();
+  const v = $('newName').value.trim();
+  if (!v) return;
+  $('newName').value = '';
+  setStations([...stations, v], { fit: true });
+};
+$('reverse').onclick = () => setStations([...stations].reverse());
+$('reset').onclick = () => setStations(defaults, { fit: true });
+$('clear').onclick = () => setStations([]);
+
+// ---------- Побудова маршруту ----------
+let buildTimer = null, reqSeq = 0;
+
+function scheduleBuild() {
+  clearTimeout(buildTimer);
+  buildTimer = setTimeout(build, 250);
+}
+
+async function build() {
+  const seq = ++reqSeq;
+  const list = [...stations];
+  $('warnings').innerHTML = '';
+  if (list.length < 2) {
+    route = null; badStation = null;
+    routeLayer.clearLayers();
+    $('total').textContent = '';
+    setStatus(list.length ? 'Додайте ще хоча б одну станцію' : 'Додайте станції маршруту');
+    renderList();
+    return;
+  }
+  setStatus('Будую маршрут…');
   try {
     const res = await fetch('/api/route', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stations }),
+      body: JSON.stringify({ stations: list }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    draw(data);
-    $('status').textContent = 'Готово';
+    if (seq !== reqSeq) return; // користувач уже змінив список
+    if (!res.ok) {
+      badStation = data.station || null;
+      const hints = (data.hints || []).map(h => `<span class="hint" data-h="${esc(h)}">${esc(h)}</span>`).join(', ');
+      setStatus(data.station ? `Станцію «${esc(data.station)}» не знайдено.${hints ? ` Можливо: ${hints}` : ''}` : esc(data.error), true, true);
+      document.querySelectorAll('.hint').forEach(el => el.onclick = () =>
+        setStations(stations.map(s => s === data.station ? el.dataset.h : s)));
+      renderList();
+      return;
+    }
+    badStation = null;
+    route = { ...data, request: list };
+    draw(route);
+    renderList();
+    setStatus(data.fromCache ? 'Готово (з кешу)' : 'Готово');
   } catch (e) {
-    $('status').className = 'err';
-    $('status').textContent = e.message;
-  } finally {
-    $('go').disabled = false;
+    if (seq === reqSeq) setStatus(e.message, true);
   }
-};
+}
 
-function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function setStatus(text, isErr = false, html = false) {
+  $('status').className = isErr ? 'err' : '';
+  $('status')[html ? 'innerHTML' : 'textContent'] = text;
+}
 
 function draw(r) {
   routeLayer.clearLayers();
   const bounds = L.latLngBounds([]);
+  if (look.outline) {
+    r.segments.forEach(s => L.polyline(s.coords, {
+      color: '#fff', weight: look.weight + 5, opacity: 0.95, interactive: false,
+    }).addTo(routeLayer));
+  }
   r.segments.forEach((s, i) => {
     const line = L.polyline(s.coords, {
-      color: s.ok ? (i % 2 ? '#e4002b' : '#ff7a00') : '#b00020',
-      weight: 6, opacity: 0.85, dashArray: s.ok ? null : '8 8',
+      color: segColor(i, s.ok),
+      weight: look.weight, opacity: 0.95, dashArray: s.ok ? null : '8 8',
     }).bindTooltip(`${esc(s.from)} → ${esc(s.to)}: ${s.distanceKm.toFixed(1)} км`, { sticky: true });
     routeLayer.addLayer(line);
     bounds.extend(line.getBounds());
   });
+  r.segments.forEach(s => (s.reversals || []).forEach(rv => {
+    L.marker([rv.lat, rv.lon], {
+      icon: L.divIcon({ className: 'rev-icon', html: '⇄', iconSize: [22, 22] }),
+    }).bindTooltip(`Зміна напрямку руху: ${esc(rv.station)}`, { direction: 'top', offset: [0, -10] })
+      .addTo(routeLayer);
+  }));
   r.stations.forEach((s, i) => {
-    const last = i === 0 || i === r.stations.length - 1;
-    L.circleMarker([s.lat, s.lon], { radius: last ? 9 : 7, color: '#111', weight: 2, fillColor: '#fff', fillOpacity: 1 })
+    const end = i === 0 || i === r.stations.length - 1;
+    L.circleMarker([s.lat, s.lon], { radius: end ? 9 : 7, color: '#111', weight: 2, fillColor: '#fff', fillOpacity: 1 })
       .bindTooltip(`${i + 1}. ${esc(s.name)}`, { permanent: true, direction: 'right', offset: [8, 0] })
       .bindPopup(`<b>${esc(s.name)}</b><br>Запит: ${esc(s.input)}<br>${s.id ? `<a target="_blank" href="https://www.openstreetmap.org/${s.id}">${s.id}</a>` : 'координати вручну'}`)
       .addTo(routeLayer);
   });
-  map.fitBounds(bounds, { padding: [30, 30] });
+  if (fitOnNextDraw || !map.getBounds().contains(bounds)) map.fitBounds(bounds, { padding: [30, 30] });
+  fitOnNextDraw = false;
 
-  let km = 0;
-  $('result').innerHTML = `<table><tbody>${r.segments.map(s => {
-    km += s.distanceKm;
-    return `<tr class="${s.ok ? '' : 'bad'}"><td>${esc(s.from)} → ${esc(s.to)}</td><td class="km">${s.distanceKm.toFixed(1)} км</td><td class="km muted">${km.toFixed(0)}</td></tr>`;
-  }).join('')}</tbody><tfoot><tr><td>Разом</td><td class="km">${r.totalKm.toFixed(1)} км</td><td></td></tr></tfoot></table>`
-  + (r.warnings.length ? `<div class="warn">${r.warnings.map(esc).join('<br>')}</div>` : '');
+  $('total').textContent = `Разом: ${r.totalKm.toFixed(1)} км`;
+  $('warnings').innerHTML = r.warnings.length ? `<div class="warn">${r.warnings.map(esc).join('<br>')}</div>` : '';
 }
+
+// ---------- Вигляд маршруту ----------
+const LOOK_KEY = 'railway-map-test:look';
+const PALETTE = ['#1f4fd8', '#c2185b', '#00897b', '#6a1b9a', '#0277bd', '#ad1457', '#2e7d32', '#4527a0', '#00838f', '#5d4037'];
+const LOOK_DEFAULT = { mode: 'single', color1: '#1f4fd8', color2: '#c2185b', weight: 6, outline: true, orm: 100 };
+const PRESETS = [
+  { name: 'Синій', mode: 'single', color1: '#1f4fd8' },
+  { name: 'Фіолетовий', mode: 'single', color1: '#7b1fa2' },
+  { name: 'Синій / малиновий', mode: 'alternate', color1: '#1f4fd8', color2: '#c2185b' },
+  { name: 'Помаранчевий / червоний', mode: 'alternate', color1: '#ff7a00', color2: '#e4002b' },
+  { name: 'Різнокольоровий', mode: 'palette' },
+];
+
+let look = { ...LOOK_DEFAULT };
+try { Object.assign(look, JSON.parse(localStorage.getItem(LOOK_KEY)) || {}); } catch {}
+
+function segColor(i, ok = true) {
+  if (!ok) return '#b00020';
+  if (look.mode === 'palette') return PALETTE[i % PALETTE.length];
+  if (look.mode === 'alternate') return i % 2 ? look.color2 : look.color1;
+  return look.color1;
+}
+
+function syncLookControls() {
+  $('lkMode').value = look.mode;
+  $('lkColor1').value = look.color1;
+  $('lkColor2').value = look.color2;
+  $('lkWeight').value = look.weight;
+  $('lkOutline').checked = look.outline;
+  $('lkOrm').value = look.orm;
+  $('lkColor2').classList.toggle('hidden', look.mode !== 'alternate');
+  const hideColors = look.mode === 'palette';
+  $('lkColorsLabel').classList.toggle('hidden', hideColors);
+  $('lkColor1').parentElement.classList.toggle('hidden', hideColors);
+}
+
+function applyLook(patch) {
+  Object.assign(look, patch);
+  localStorage.setItem(LOOK_KEY, JSON.stringify(look));
+  syncLookControls();
+  Object.values(orm).forEach(l => l.setOpacity(look.orm / 100));
+  if (route && sameList(route.request, stations)) { draw(route); renderList(); }
+}
+
+$('lkMode').onchange = e => applyLook({ mode: e.target.value });
+$('lkColor1').oninput = e => applyLook({ color1: e.target.value });
+$('lkColor2').oninput = e => applyLook({ color2: e.target.value });
+$('lkWeight').oninput = e => applyLook({ weight: +e.target.value });
+$('lkOutline').onchange = e => applyLook({ outline: e.target.checked });
+$('lkOrm').oninput = e => applyLook({ orm: +e.target.value });
+
+$('lkPresets').innerHTML = PRESETS.map((p, i) => {
+  const sw = p.mode === 'palette'
+    ? `linear-gradient(90deg, ${PALETTE.slice(0, 4).join(', ')})`
+    : p.mode === 'alternate' ? `linear-gradient(90deg, ${p.color1} 50%, ${p.color2} 50%)` : p.color1;
+  return `<button type="button" data-p="${i}"><span class="sw" style="background:${sw}"></span>${esc(p.name)}</button>`;
+}).join('') + '<button type="button" id="lkReset">Типові</button>';
+$('lkPresets').querySelectorAll('[data-p]').forEach(b => b.onclick = () => {
+  const { name, ...p } = PRESETS[+b.dataset.p];
+  applyLook(p);
+});
+$('lkReset').onclick = () => applyLook({ ...LOOK_DEFAULT });
+
+applyLook({});
+
+// ---------- Старт ----------
+fetch('/api/stations').then(r => r.json()).then(names => {
+  $('names').innerHTML = names.map(n => `<option value="${esc(n)}">`).join('');
+});
+
+fetch('/stations.json').then(r => r.json()).then(j => {
+  defaults = (Array.isArray(j) ? j : j.stations).map(s => typeof s === 'string' ? s : s.name);
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch {}
+  setStations(Array.isArray(saved) ? saved : defaults, { fit: true });
+});
 </script>
 </body>
 </html>

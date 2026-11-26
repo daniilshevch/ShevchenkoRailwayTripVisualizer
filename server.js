@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildRoute } from './lib/router.js';
 import { getGraph } from './lib/network.js';
+import { listStationNames } from './lib/stations.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -19,14 +20,17 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://x');
     if (req.method === 'POST' && url.pathname === '/api/route') {
-      let body = '';
-      for await (const chunk of req) body += chunk;
-      const { stations } = JSON.parse(body);
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const { stations } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (!Array.isArray(stations) || stations.length < 2) return send(res, 400, { error: 'Потрібно мінімум 2 станції' });
       const t0 = Date.now();
       const route = await buildRoute(stations);
       console.log(`[server] маршрут за ${((Date.now() - t0) / 1000).toFixed(1)} с, ${route.totalKm.toFixed(1)} км`);
       return send(res, 200, route);
+    }
+    if (req.method === 'GET' && url.pathname === '/api/stations') {
+      return send(res, 200, await listStationNames());
     }
     if (req.method === 'GET') {
       const file = url.pathname === '/' ? 'public/index.html'
@@ -40,7 +44,7 @@ const server = http.createServer(async (req, res) => {
     send(res, 404, { error: 'Not found' });
   } catch (e) {
     console.error(e);
-    send(res, e.code === 'ENOENT' ? 404 : 500, { error: e.message });
+    send(res, e.code === 'ENOENT' ? 404 : e.station ? 422 : 500, { error: e.message, station: e.station, hints: e.hints });
   }
 });
 

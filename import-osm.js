@@ -1,20 +1,28 @@
-// Імпорт залізничної мережі та станцій з OSM-екстракту Geofabrik.
+// Імпорт залізничної мережі та станцій з OSM-екстрактів Geofabrik.
 //
 //   curl -L -o data/ukraine-latest.osm.pbf https://download.geofabrik.de/europe/ukraine-latest.osm.pbf
-//   node import-osm.js [data/ukraine-latest.osm.pbf]
+//   curl -L -o data/moldova-latest.osm.pbf https://download.geofabrik.de/europe/moldova-latest.osm.pbf
+//   node import-osm.js [файл1.pbf файл2.pbf ...]
 //
-// Результат: data/ua-rail.json — лише колії та станції (кілька десятків МБ замість ~850).
+// Без аргументів бере всі data/*.osm.pbf. Кілька країн потрібні, бо частина ліній
+// України проходить транзитом через сусідів (напр. Могилів-Подільський — Ларга через Молдову).
+// Результат: data/ua-rail.json — лише колії та станції (кілька десятків МБ замість ~1 ГБ).
 // Щоб оновити дані — скачайте свіжий .pbf і запустіть імпорт знову.
 import fs from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Writable } from 'node:stream';
 import osmPbfParser from 'osm-pbf-parser';
 
-const INPUT = process.argv[2] || 'data/ukraine-latest.osm.pbf';
+const INPUTS = process.argv.length > 2
+  ? process.argv.slice(2)
+  : fs.readdirSync('data').filter(f => f.endsWith('.osm.pbf')).map(f => 'data/' + f);
 const OUTPUT = 'data/ua-rail.json';
 
-// Ті самі правила, що й раніше: головні та станційні колії, без service=* (депо, тупики, під'їзні)
-const isRail = t => t.railway === 'rail' && !t.service && !/^(industrial|military|test|tourism)$/.test(t.usage || '');
+// Беремо всі колії railway=rail. Клас 0 — головні/станційні, клас 1 — службові
+// (service=siding/yard/spur/crossover, промислові тощо). Службові потрібні, бо в OSM
+// ними часто з'єднані лінії у вузлових станціях; маршрутизатор використовує їх зі штрафом.
+const isRail = t => t.railway === 'rail';
+const railClass = t => (t.service || /^(industrial|military|test|tourism)$/.test(t.usage || '')) ? 1 : 0;
 const isStation = t =>
   (/^(station|halt)$/.test(t.railway) || (t.public_transport === 'station' && t.train === 'yes')) &&
   !/^(subway|light_rail|monorail|funicular|tram)$/.test(t.station || '');
@@ -22,10 +30,10 @@ const STATION_TAGS = ['name', 'name:uk', 'name:ru', 'name:en', 'official_name', 
 const pickTags = t => Object.fromEntries(STATION_TAGS.filter(k => t[k]).map(k => [k, t[k]]));
 
 /** Прохід по файлу; onItem повертає true, щоб зупинити читання достроково. */
-async function scan(label, onItem) {
+async function scan(file, label, onItem) {
   const t0 = Date.now();
-  const size = fs.statSync(INPUT).size;
-  const input = fs.createReadStream(INPUT, { highWaterMark: 1 << 20 });
+  const size = fs.statSync(file).size;
+  const input = fs.createReadStream(file, { highWaterMark: 1 << 20 });
   let lastPct = -1, stopped = false;
   input.on('data', () => {
     const pct = Math.floor(input.bytesRead / size * 100);
@@ -46,10 +54,11 @@ async function scan(label, onItem) {
   console.log(`  ${label}: готово за ${((Date.now() - t0) / 1000).toFixed(0)} с`);
 }
 
-if (!fs.existsSync(INPUT)) {
-  console.error(`Немає файлу ${INPUT}. Скачайте: https://download.geofabrik.de/europe/ukraine-latest.osm.pbf`);
+if (!INPUTS.length || INPUTS.some(f => !fs.existsSync(f))) {
+  console.error(`Немає файлів ${INPUTS.join(', ') || 'data/*.osm.pbf'}. Скачайте: https://download.geofabrik.de/europe/ukraine-latest.osm.pbf`);
   process.exit(1);
 }
+console.log('Файли: ' + INPUTS.join(', '));
 
 // Прохід 1: колії, станції-вузли, станції-полігони; які вузли потрібні
 console.log('Прохід 1/2: шукаю колії та станції');
@@ -57,14 +66,19 @@ const ways = [];
 const stations = [];
 const stationWays = [];
 const need = new Set();
-await scan('прохід 1', it => {
+// Об'єкти на кордоні є в кількох файлах — запам'ятовуємо лише ті, що зберігаємо
+const seen = new Set();
+const firstTime = key => !seen.has(key) && !!seen.add(key);
+for (const file of INPUTS) await scan(file, `прохід 1, ${file}`, it => {
   const t = it.tags || {};
   if (it.type === 'node') {
-    if ((t.railway || t.public_transport) && isStation(t))
+    if ((t.railway || t.public_transport) && isStation(t) && firstTime('n' + it.id))
       stations.push({ id: `node/${it.id}`, lat: it.lat, lon: it.lon, tags: pickTags(t) });
   } else if (it.type === 'way') {
+    if (!isRail(t) && !((t.railway || t.public_transport) && isStation(t))) return;
+    if (!firstTime('w' + it.id)) return;
     if (isRail(t)) {
-      ways.push({ id: it.id, refs: it.refs });
+      ways.push({ id: it.id, refs: it.refs, cls: railClass(t) });
       for (const r of it.refs) need.add(r);
     } else if ((t.railway || t.public_transport) && isStation(t)) {
       stationWays.push({ id: it.id, refs: it.refs, tags: pickTags(t) });
@@ -79,9 +93,9 @@ console.log(`  колій (ways): ${ways.length}, станцій-вузлів: $
 // Прохід 2: координати потрібних вузлів (у .pbf вузли йдуть першими — зупиняємось на першому way)
 console.log('Прохід 2/2: збираю координати');
 const coord = new Map();
-await scan('прохід 2', it => {
+for (const file of INPUTS) await scan(file, `прохід 2, ${file}`, it => {
   if (it.type !== 'node') return true;
-  if (need.has(it.id)) coord.set(it.id, [+it.lat.toFixed(7), +it.lon.toFixed(7)]);
+  if (need.has(it.id) && !coord.has(it.id)) coord.set(it.id, [+it.lat.toFixed(7), +it.lon.toFixed(7)]);
 });
 
 for (const w of stationWays) {
@@ -99,11 +113,11 @@ for (const w of stationWays) {
 const railNodes = new Set();
 for (const w of ways) for (const r of w.refs) railNodes.add(r);
 const out = {
-  source: INPUT,
-  sourceDate: fs.statSync(INPUT).mtime.toISOString(),
+  sources: INPUTS.map(f => ({ file: f, date: fs.statSync(f).mtime.toISOString() })),
   importedAt: new Date().toISOString(),
   nodes: [...railNodes].filter(id => coord.has(id)).map(id => [id, ...coord.get(id)]),
   ways: ways.map(w => w.refs),
+  wayClass: ways.map(w => w.cls),
   stations,
 };
 fs.writeFileSync(OUTPUT, JSON.stringify(out));

@@ -8,7 +8,7 @@ const list = Array.isArray(raw) ? raw : raw.stations;
 
 const route = await buildRoute(list);
 for (const s of route.segments) {
-  console.log(`${s.ok ? '✓' : '✗'} ${s.from} → ${s.to}: ${s.distanceKm.toFixed(1)} км`);
+  console.log(`${s.ok ? "✓" : "✗"} ${s.from} → ${s.to}: ${s.distanceKm.toFixed(1)} км${s.reversals?.length ? `  (зміна напрямку: ${s.reversals.map(r => r.station).join(", ")})` : ""}`);
 }
 console.log(`Разом: ${route.totalKm.toFixed(1)} км`);
 await fs.writeFile(output, JSON.stringify(toGeoJSON(route), null, 1));
