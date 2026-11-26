@@ -1,0 +1,15 @@
+{
+  "name": "railway-map-test",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "cli": "node cli.js stations.json",
+    "import": "node import-osm.js"
+  },
+  "dependencies": {
+    "osm-pbf-parser": "^2.3.0",
+    "through2": "^5.0.13"
+  }
+}

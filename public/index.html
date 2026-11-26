@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Маршрут поїзда — OpenRailwayMap</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; display: flex; height: 100vh; }
+  #side { width: 340px; padding: 14px; overflow: auto; border-right: 1px solid #ddd; background: #fafafa; }
+  #map { flex: 1; }
+  h1 { font-size: 17px; margin: 0 0 10px; }
+  textarea { width: 100%; height: 190px; font: inherit; padding: 6px; }
+  button { margin-top: 8px; width: 100%; padding: 9px; font: inherit; font-weight: 600; background: #1b5fbf; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+  button:disabled { background: #888; cursor: wait; }
+  #status { margin: 10px 0; color: #555; min-height: 1.4em; }
+  #status.err { color: #b00020; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  td { padding: 4px 2px; border-bottom: 1px solid #e5e5e5; vertical-align: top; }
+  td.km { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  tr.bad td { color: #b00020; }
+  tfoot td { font-weight: 700; border: 0; }
+  .warn { font-size: 12px; color: #8a5a00; background: #fff6dd; padding: 6px; margin-top: 8px; border-radius: 4px; }
+  .muted { font-size: 12px; color: #777; }
+</style>
+</head>
+<body>
+<div id="side">
+  <h1>Маршрут поїзда по коліях</h1>
+  <div class="muted">Одна станція на рядок, у порядку руху</div>
+  <textarea id="list"></textarea>
+  <button id="go">Побудувати маршрут</button>
+  <div id="status"></div>
+  <div id="result"></div>
+  <p class="muted">Перший запуск може тривати 1–3 хв: дані тягнуться з Overpass API і кешуються в <code>cache/</code>.</p>
+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([48.5, 28], 7);
+
+const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
+}).addTo(map);
+const ormAttr = 'Style: <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a> (CC-BY-SA)';
+const orm = {
+  'ORM: інфраструктура': L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', { subdomains: 'abc', maxZoom: 19, attribution: ormAttr }),
+  'ORM: макс. швидкість': L.tileLayer('https://{s}.tiles.openrailwaymap.org/maxspeed/{z}/{x}/{y}.png', { subdomains: 'abc', maxZoom: 19, attribution: ormAttr }),
+  'ORM: електрифікація': L.tileLayer('https://{s}.tiles.openrailwaymap.org/electrification/{z}/{x}/{y}.png', { subdomains: 'abc', maxZoom: 19, attribution: ormAttr }),
+};
+orm['ORM: інфраструктура'].addTo(map);
+L.control.layers({ 'OpenStreetMap': osm }, orm).addTo(map);
+
+const routeLayer = L.layerGroup().addTo(map);
+const $ = id => document.getElementById(id);
+
+fetch('/stations.json').then(r => r.json()).then(j => {
+  const list = Array.isArray(j) ? j : j.stations;
+  $('list').value = list.map(s => typeof s === 'string' ? s : s.name).join('\n');
+});
+
+$('go').onclick = async () => {
+  const stations = $('list').value.split('\n').map(s => s.trim()).filter(Boolean);
+  $('go').disabled = true;
+  $('status').className = '';
+  $('status').textContent = 'Будую маршрут…';
+  $('result').innerHTML = '';
+  try {
+    const res = await fetch('/api/route', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stations }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    draw(data);
+    $('status').textContent = 'Готово';
+  } catch (e) {
+    $('status').className = 'err';
+    $('status').textContent = e.message;
+  } finally {
+    $('go').disabled = false;
+  }
+};
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function draw(r) {
+  routeLayer.clearLayers();
+  const bounds = L.latLngBounds([]);
+  r.segments.forEach((s, i) => {
+    const line = L.polyline(s.coords, {
+      color: s.ok ? (i % 2 ? '#e4002b' : '#ff7a00') : '#b00020',
+      weight: 6, opacity: 0.85, dashArray: s.ok ? null : '8 8',
+    }).bindTooltip(`${esc(s.from)} → ${esc(s.to)}: ${s.distanceKm.toFixed(1)} км`, { sticky: true });
+    routeLayer.addLayer(line);
+    bounds.extend(line.getBounds());
+  });
+  r.stations.forEach((s, i) => {
+    const last = i === 0 || i === r.stations.length - 1;
+    L.circleMarker([s.lat, s.lon], { radius: last ? 9 : 7, color: '#111', weight: 2, fillColor: '#fff', fillOpacity: 1 })
+      .bindTooltip(`${i + 1}. ${esc(s.name)}`, { permanent: true, direction: 'right', offset: [8, 0] })
+      .bindPopup(`<b>${esc(s.name)}</b><br>Запит: ${esc(s.input)}<br>${s.id ? `<a target="_blank" href="https://www.openstreetmap.org/${s.id}">${s.id}</a>` : 'координати вручну'}`)
+      .addTo(routeLayer);
+  });
+  map.fitBounds(bounds, { padding: [30, 30] });
+
+  let km = 0;
+  $('result').innerHTML = `<table><tbody>${r.segments.map(s => {
+    km += s.distanceKm;
+    return `<tr class="${s.ok ? '' : 'bad'}"><td>${esc(s.from)} → ${esc(s.to)}</td><td class="km">${s.distanceKm.toFixed(1)} км</td><td class="km muted">${km.toFixed(0)}</td></tr>`;
+  }).join('')}</tbody><tfoot><tr><td>Разом</td><td class="km">${r.totalKm.toFixed(1)} км</td><td></td></tr></tfoot></table>`
+  + (r.warnings.length ? `<div class="warn">${r.warnings.map(esc).join('<br>')}</div>` : '');
+}
+</script>
+</body>
+</html>
