@@ -61,6 +61,7 @@ async function buildTrain() {
   }
 }
 
+const ukName = s => s.titleUk || s.title;
 const fmtTime = t => t ? t.slice(11, 16) : '—';
 const toLatLng = coords => coords.map(([lo, la]) => [la, lo]);
 const matchLabel = m => m === 'code' ? 'за кодом' : m === 'override' ? 'ручне виправлення' : 'за назвою';
@@ -81,7 +82,7 @@ function drawTrain(r, fit = false) {
       weight: s.isPartOfTrip ? look.weight : Math.max(2, look.weight - 2),
       opacity: s.isPartOfTrip ? 0.95 : 0.45,
       dashArray: !ok ? '8 8' : s.isPartOfTrip ? null : '10 8',
-    }).bindTooltip(`${esc(a.title)} → ${esc(b.title)}: ${s.distanceKm} км` +
+    }).bindTooltip(`${esc(ukName(a))} → ${esc(ukName(b))}: ${s.distanceKm} км` +
       (s.officialKm != null ? ` (за розкладом ${s.officialKm} км)` : '') +
       (s.isPartOfTrip ? '' : '<br><i>поза поїздкою</i>'), { sticky: true });
     line.on('click', () => highlightRow(s.toIndex));
@@ -103,8 +104,9 @@ function drawTrain(r, fit = false) {
       color: s.isPartOfTrip ? '#111' : '#888', weight: 2,
       fillColor: byCode ? '#fff' : '#ffe08a', fillOpacity: 1,
     })
-      .bindTooltip(esc(s.title), { permanent: s.isPartOfTrip, direction: 'right', offset: [7, 0], className: s.isPartOfTrip ? '' : 'off-label' })
-      .bindPopup(`<b>${esc(s.title)}</b> · ${s.stationId}<br>` +
+      .bindTooltip(esc(ukName(s)), { permanent: s.isPartOfTrip, direction: 'right', offset: [7, 0], className: s.isPartOfTrip ? '' : 'off-label' })
+      .bindPopup(`<b>${esc(ukName(s))}</b> · ${s.stationId}<br>` +
+        (ukName(s) !== s.title ? `У розкладі: ${esc(s.title)}<br>` : '') +
         (s.osm ? `OSM: <a target="_blank" href="https://www.openstreetmap.org/${s.osm.id}">${esc(s.osm.name)}</a> (${matchLabel(s.match)})<br>` : '') +
         `Прибуття ${fmtTime(inp.arrival_time)}, відправлення ${fmtTime(inp.departure_time)}<br>` +
         `Км: ${s.kmFromStart ?? '—'} по OSM, ${s.officialKm ?? '—'} за розкладом`)
@@ -133,11 +135,11 @@ function renderTrainTable(r) {
     const badge = s.match === 'not_found' ? '<span class="badge err">не знайдено</span>'
       : s.match === 'code' || s.match === 'override' ? ''
       : '<span class="badge" title="Коду немає в OSM, знайдено за назвою">за назвою</span>';
-    const osmName = s.osm && s.osm.name.toLowerCase() !== s.title.toLowerCase() ? `<small>${esc(s.osm.name)}</small>` : '';
+    const orig = ukName(s) !== s.title ? `<small>${esc(s.title)}</small>` : '';
     const dev = d && d.s.deviationKm != null
       ? `<span class="${flagged.has(d.k) ? 'bad' : ''}">${d.s.deviationKm > 0 ? '+' : ''}${d.s.deviationKm}</span>` : '';
     return `<tr data-i="${i}" class="${s.isPartOfTrip ? '' : 'off'}"><td>${i + 1}</td>` +
-      `<td class="name">${esc(s.title)}${badge}${osmName}</td>` +
+      `<td class="name">${esc(ukName(s))}${badge}${orig}</td>` +
       `<td>${s.officialKm ?? '—'}</td><td>${s.kmFromStart ?? '—'}</td><td>${dev}</td></tr>`;
   });
 

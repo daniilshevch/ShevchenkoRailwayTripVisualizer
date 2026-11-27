@@ -39,7 +39,7 @@ OSM редагують постійно (нові колії, виправлен
   "totalKm": 993.7, "officialTotalKm": 996,
   "trip": { "fromIndex": 0, "toIndex": 17 },   // частина маршруту з is_part_of_trip
   "stops": [{
-    "index": 0, "stationId": 2208001, "title": "Odesa-Holovna",
+    "index": 0, "stationId": 2208001, "title": "Odesa-Holovna", "titleUk": "Одеса-Головна",
     "osm": { "id": "node/3911229407", "name": "Одеса-Головна" },
     "lat": 46.4672, "lon": 30.741,
     "match": "code",                   // code | override | exact | alias | fuzzy | not_found
@@ -58,6 +58,14 @@ OSM редагують постійно (нові колії, виправлен
 ```
 
 Коди зауважень: `STATION_NOT_FOUND` і `NO_RAIL_PATH` (error), `CODE_MISMATCH`, `LOCATION_SUSPICIOUS`, `FUZZY_MATCH` і `DISTANCE_MISMATCH` (warning: ділянка по OSM відрізняється від розкладу більш ніж на 3 км і 5%, тобто маршрут, імовірно, пішов не тією лінією), `MATCHED_BY_NAME` і `REVERSAL` (info).
+
+### Українські назви станцій
+
+Поле `titleUk` береться так: файл `data/station-names-uk.json` → українська назва з OSM (`name:uk`) → назва з розкладу (`station_title`), якщо станцію не знайдено. Файл потрібен лише для виправлень: наприклад, щоб показувати «Львів» замість «Львів-Головний». Правки діють одразу, без перезапуску.
+
+```json
+{ "2218000": "Львів" }
+```
 
 ### Ручні виправлення станцій
 
