@@ -1,4 +1,7 @@
-// Простий сервер без залежностей: статичні файли + POST /api/route
+// Простий сервер без залежностей:
+//   POST /api/train-route  — маршрут за розкладом з основного бекенду (масив зупинок)
+//   POST /api/route        — маршрут за списком назв (для тестового редактора)
+//   GET  /api/stations     — назви станцій для автопідказки
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -6,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { buildRoute } from './lib/router.js';
 import { getGraph } from './lib/network.js';
 import { listStationNames } from './lib/stations.js';
+import { buildTrainRoute } from './lib/train.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -16,9 +20,24 @@ const send = (res, code, body, type = 'application/json; charset=utf-8') => {
   res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 };
 
+async function readJson(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+  catch { throw Object.assign(new Error('Тіло запиту — не JSON'), { status: 400 }); }
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://x');
+    if (req.method === 'POST' && url.pathname === '/api/train-route') {
+      const body = await readJson(req);
+      const stops = Array.isArray(body) ? body : body.stops;
+      const t0 = Date.now();
+      const route = await buildTrainRoute(stops, { detail: url.searchParams.get('detail') === 'full' ? 'full' : 'simplified' });
+      console.log(`[server] маршрут поїзда за ${Date.now() - t0} мс, ${route.totalKm} км, зауважень: ${route.issues.length}`);
+      return send(res, 200, route);
+    }
     if (req.method === 'POST' && url.pathname === '/api/route') {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
@@ -35,6 +54,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET') {
       const file = url.pathname === '/' ? 'public/index.html'
         : url.pathname === '/stations.json' ? 'stations.json'
+        : url.pathname.startsWith('/samples/') ? path.normalize(url.pathname).replace(/^([/\\])+/, '')
         : path.join('public', path.normalize(url.pathname).replace(/^([/\\])+/, ''));
       const full = path.join(ROOT, file);
       if (!full.startsWith(ROOT)) return send(res, 403, 'Forbidden', 'text/plain');
@@ -44,7 +64,7 @@ const server = http.createServer(async (req, res) => {
     send(res, 404, { error: 'Not found' });
   } catch (e) {
     console.error(e);
-    send(res, e.code === 'ENOENT' ? 404 : e.station ? 422 : 500, { error: e.message, station: e.station, hints: e.hints });
+    send(res, e.status || (e.code === 'ENOENT' ? 404 : e.station ? 422 : 500), { error: e.message, station: e.station, hints: e.hints });
   }
 });
 

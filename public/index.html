@@ -52,7 +52,31 @@
   .tools button { flex: 1; font-size: 12px; }
   .seg { border-left: 4px solid transparent; margin-left: 24px; padding-left: 12px; }
 
+  .leaflet-tooltip.off-label { color: #777; }
   .rev-icon { background: #ffb300; color: #111; border: 2px solid #111; border-radius: 50%; font-weight: 700; font-size: 13px; line-height: 18px; text-align: center; }
+  .tabs { display: flex; gap: 4px; margin: 8px 0 6px; }
+  .tabs button { flex: 1; font-size: 12px; padding: 5px 6px; }
+  .tabs button.active { background: #1b5fbf; border-color: #1b5fbf; color: #fff; }
+  body.train .mode-editor, body:not(.train) .mode-train { display: none !important; }
+  #train { padding: 0 14px; overflow: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  #trainJson { width: 100%; height: 110px; font: 11px/1.3 ui-monospace, Consolas, monospace; padding: 6px; border: 1px solid #ccc; border-radius: 4px; resize: vertical; flex: none; }
+  #train .row { display: flex; gap: 6px; }
+  #train .row button { flex: 1; font-size: 12px; }
+  .tt { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .tt th { text-align: right; font-weight: 600; color: #666; padding: 3px 4px; border-bottom: 1px solid #ddd; position: sticky; top: 0; background: #fafafa; }
+  .tt th:nth-child(2) { text-align: left; }
+  .tt td { padding: 3px 4px; border-bottom: 1px solid #eee; text-align: right; vertical-align: top; }
+  .tt td.name { text-align: left; }
+  .tt td.name small { display: block; color: #888; }
+  .tt tr.off td { color: #999; }
+  .tt tr.selected td { background: #eef4ff; }
+  .tt .bad { color: #b00020; font-weight: 700; }
+  .tt .badge { font-size: 10px; padding: 0 4px; border-radius: 3px; background: #fff3cd; color: #8a5a00; margin-left: 4px; }
+  .tt .badge.err { background: #fde2e4; color: #b00020; }
+  .issue { font-size: 12px; padding: 4px 6px; margin-top: 4px; border-radius: 4px; }
+  .issue.error { background: #fde2e4; color: #b00020; }
+  .issue.warning { background: #fff6dd; color: #8a5a00; }
+  .issue.info { background: #eef4ff; color: #2a4a80; }
   details#look { margin-top: 10px; border: 1px solid #e0e0e0; border-radius: 6px; background: #fff; }
   details#look summary { cursor: pointer; padding: 6px 10px; font-weight: 600; font-size: 13px; }
   #look .body { padding: 4px 10px 10px; display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; font-size: 13px; }
@@ -69,13 +93,26 @@
 <div id="side">
   <header>
     <h1>Маршрут поїзда по коліях</h1>
-    <div class="muted">Перетягуйте станції за ⋮⋮, щоб змінити порядок. Маршрут перебудовується автоматично.</div>
+    <div class="tabs">
+      <button type="button" data-mode="editor">Редактор станцій</button>
+      <button type="button" data-mode="train">Поїзд (JSON з бекенду)</button>
+    </div>
+    <div class="muted mode-editor">Перетягуйте станції за ⋮⋮, щоб змінити порядок. Маршрут перебудовується автоматично.</div>
+    <div class="muted mode-train">Вставте розклад поїзда у форматі основного бекенду. Станції шукаються за station_id (UIC), а якщо його немає в OSM — за назвою.</div>
   </header>
-  <form id="add">
+  <div id="train" class="mode-train">
+    <textarea id="trainJson" spellcheck="false" placeholder='[{"station_id": 2208001, "station_title": "Odesa-Holovna", ...}, ...]'></textarea>
+    <div class="row">
+      <button type="button" class="primary" id="trainBuild">Побудувати</button>
+      <button type="button" id="trainSample">Приклад: Одеса — Ясіня</button>
+    </div>
+    <div id="trainTable"></div>
+  </div>
+  <form id="add" class="mode-editor">
     <input type="text" id="newName" list="names" placeholder="Додати станцію…" autocomplete="off">
     <button class="primary" type="submit">Додати</button>
   </form>
-  <ul id="list"></ul>
+  <ul id="list" class="mode-editor"></ul>
   <footer>
     <div id="total"></div>
     <div id="status"></div>
@@ -103,7 +140,7 @@
         <div class="presets" id="lkPresets"></div>
       </div>
     </details>
-    <div class="tools">
+    <div class="tools mode-editor">
       <button id="reverse" type="button">⇅ Зворотний напрямок</button>
       <button id="reset" type="button">Скинути до stations.json</button>
       <button id="clear" type="button">Очистити</button>
@@ -141,6 +178,12 @@ let route = null;        // остання відповідь сервера
 let badStation = null;   // назва, яку не знайдено
 let defaults = [];
 let fitOnNextDraw = true;
+// Режим сторінки: редактор станцій або поїзд з JSON бекенду (логіка — у train.js)
+const MODE_KEY = 'railway-map-test:mode';
+const TRAIN_KEY = 'railway-map-test:train-json';
+let mode = localStorage.getItem(MODE_KEY) === 'train' ? 'train' : 'editor';
+let trainRoute = null;   // відповідь /api/train-route
+let trainInput = null;   // вхідні зупинки (для часу прибуття/відправлення)
 
 function setStations(next, { fit = false } = {}) {
   stations = next.map(s => s.trim()).filter(Boolean);
@@ -248,6 +291,7 @@ function scheduleBuild() {
 }
 
 async function build() {
+  if (mode !== 'editor') return; // перебудуємо при поверненні в редактор
   const seq = ++reqSeq;
   const list = [...stations];
   $('warnings').innerHTML = '';
@@ -266,7 +310,7 @@ async function build() {
       body: JSON.stringify({ stations: list }),
     });
     const data = await res.json();
-    if (seq !== reqSeq) return; // користувач уже змінив список
+    if (seq !== reqSeq || mode !== 'editor') return; // список змінився або перейшли в інший режим
     if (!res.ok) {
       badStation = data.station || null;
       const hints = (data.hints || []).map(h => `<span class="hint" data-h="${esc(h)}">${esc(h)}</span>`).join(', ');
@@ -367,7 +411,8 @@ function applyLook(patch) {
   localStorage.setItem(LOOK_KEY, JSON.stringify(look));
   syncLookControls();
   Object.values(orm).forEach(l => l.setOpacity(look.orm / 100));
-  if (route && sameList(route.request, stations)) { draw(route); renderList(); }
+  if (mode === 'train') { if (trainRoute) { drawTrain(trainRoute); renderTrainTable(trainRoute); } }
+  else if (route && sameList(route.request, stations)) { draw(route); renderList(); }
 }
 
 $('lkMode').onchange = e => applyLook({ mode: e.target.value });
@@ -403,5 +448,6 @@ fetch('/stations.json').then(r => r.json()).then(j => {
   setStations(Array.isArray(saved) ? saved : defaults, { fit: true });
 });
 </script>
+<script src="/train.js"></script>
 </body>
 </html>

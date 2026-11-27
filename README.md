@@ -22,6 +22,56 @@ node --max-old-space-size=4096 server.js         # відкрити http://local
 
 OSM редагують постійно (нові колії, виправлення, перейменування). Щоб підтягнути свіжі дані, скачайте нові `.pbf` (Geofabrik оновлює його щодня) і запустіть `import-osm.js` ще раз. Кеш готових маршрутів прив'язаний до дати імпорту, тож після оновлення маршрути перебудуються.
 
+## API для основного бекенду: `POST /api/train-route`
+
+Приймає розклад поїзда у форматі основного бекенду (масив зупинок, приклад: [samples/train-odesa-yasinia.json](samples/train-odesa-yasinia.json)). Використовуються поля `station_id`, `station_title`, `is_part_of_trip`, `distance_from_full_route_starting_station`, решта ігнорується.
+
+Станція шукається за `station_id` — це код UIC, він є в OSM у тегу `uic_ref` (приблизно в половини станцій України). Якщо коду в OSM немає, станція шукається за `station_title` (англійська назва теж підходить). Код перевіряється кілометражем розкладу: пряма відстань до сусідніх зупинок не може бути більшою за відстань по коліях (+20% і 5 км). Якщо станція, знайдена за кодом, не проходить цю перевірку з жодним сусідом, коду не довіряємо, шукаємо за назвою і повертаємо `CODE_MISMATCH` (приклад: Бугаз має в розкладі код 2208446, а в OSM цей код стоїть на з.п. «44 км» під Миколаєвом, у самого Бугаза в OSM 2208486). Якщо станцію не знайдено зовсім, маршрут будується без неї, а у відповіді з'являється помилка `STATION_NOT_FOUND`.
+
+`?detail=full` повертає повну геометрію. Без нього лінія спрощена до точності ~10 м: на карті різниці не видно, а відповідь у ~4 рази менша (Одеса — Ясіня: 45 КБ замість 193 КБ).
+
+Відповідь (скорочено):
+
+```json
+{
+  "routeKey": "c1f0…",                 // ключ кешу
+  "dataVersion": "2026-11-26T…",       // дата імпорту даних OSM
+  "totalKm": 993.7, "officialTotalKm": 996,
+  "trip": { "fromIndex": 0, "toIndex": 17 },   // частина маршруту з is_part_of_trip
+  "stops": [{
+    "index": 0, "stationId": 2208001, "title": "Odesa-Holovna",
+    "osm": { "id": "node/3911229407", "name": "Одеса-Головна" },
+    "lat": 46.4672, "lon": 30.741,
+    "match": "code",                   // code | override | exact | alias | fuzzy | not_found
+    "kmFromStart": 0, "officialKm": 0, "isPartOfTrip": true
+  }],
+  "segments": [{
+    "fromIndex": 0, "toIndex": 1, "status": "ok",          // ok | no_rail_path
+    "distanceKm": 71.8, "officialKm": 73, "deviationKm": -1.2,
+    "isPartOfTrip": true, "reversals": [],
+    "geometry": { "type": "LineString", "coordinates": [[30.741, 46.4672], "…"] }   // GeoJSON: [lon, lat]
+  }],
+  "issues": [
+    { "severity": "info", "code": "MATCHED_BY_NAME", "stopIndex": 13, "message": "…" }
+  ]
+}
+```
+
+Коди зауважень: `STATION_NOT_FOUND` і `NO_RAIL_PATH` (error), `CODE_MISMATCH`, `LOCATION_SUSPICIOUS`, `FUZZY_MATCH` і `DISTANCE_MISMATCH` (warning: ділянка по OSM відрізняється від розкладу більш ніж на 3 км і 5%, тобто маршрут, імовірно, пішов не тією лінією), `MATCHED_BY_NAME` і `REVERSAL` (info).
+
+### Ручні виправлення станцій
+
+Якщо станцію знайдено неправильно або не знайдено, додайте її код у `data/station-overrides.json`. Файл читається на кожен запит, і його вміст входить у ключ кешу, тож після правки маршрути перебудуються самі, без перезапуску.
+
+```json
+{
+  "2218300": { "osm": "node/123456789" },
+  "2299999": { "lat": 49.553, "lon": 25.594, "name": "Нова станція" }
+}
+```
+
+У тестовому інтерфейсі цей режим відкривається вкладкою «Поїзд (JSON з бекенду)».
+
 ## Формат stations.json
 
 ```json
